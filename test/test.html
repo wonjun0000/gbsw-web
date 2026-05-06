@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Photo Gallery</title>
+
+<style>
+body{
+margin:0;
+font-family:sans-serif;
+background:#0f172a;
+color:white;
+overscroll-behavior-y: contain;
+}
+
+header{
+padding:15px;
+text-align:center;
+background:#111827;
+font-weight:bold;
+}
+
+.tabs{
+display:flex;
+justify-content:center;
+gap:10px;
+padding:10px;
+background:#1f2937;
+}
+
+.tab{
+padding:10px 15px;
+background:#374151;
+border-radius:10px;
+cursor:pointer;
+}
+
+.tab.active{
+background:#3b82f6;
+}
+
+.section{
+display:none;
+padding:15px;
+}
+
+.section.active{
+display:block;
+}
+
+.upload{
+display:flex;
+flex-direction:column;
+align-items:center;
+gap:10px;
+}
+
+input,button{
+padding:10px;
+border-radius:8px;
+border:none;
+}
+
+.grid{
+display:grid;
+grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
+gap:10px;
+}
+
+.card{
+position:relative;
+background:#1f2937;
+border-radius:12px;
+overflow:hidden;
+cursor:pointer;
+}
+
+.card img{
+width:100%;
+height:130px;
+object-fit:cover;
+}
+
+.title{
+font-size:13px;
+padding:5px;
+}
+
+.delete{
+position:absolute;
+top:5px;
+right:5px;
+background:red;
+color:white;
+border:none;
+padding:5px 8px;
+border-radius:6px;
+cursor:pointer;
+}
+
+.viewer{
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:black;
+display:none;
+justify-content:center;
+align-items:center;
+touch-action:none;
+}
+
+.viewer img{
+max-width:98vw;
+max-height:98vh;
+object-fit:contain;
+}
+
+.close{
+position:absolute;
+top:10px;
+right:10px;
+background:red;
+padding:8px;
+border-radius:8px;
+cursor:pointer;
+}
+</style>
+</head>
+
+<body>
+
+<header>📸 Photo Gallery</header>
+
+<div class="tabs">
+<div class="tab active" onclick="show('album')">📁 앨범</div>
+<div class="tab" onclick="show('upload')">⬆️ 업로드</div>
+</div>
+
+<div id="album" class="section active">
+<div class="grid" id="grid"></div>
+</div>
+
+<div id="upload" class="section">
+<div class="upload">
+<input type="text" id="name" placeholder="묶음 이름">
+<input type="file" id="files" multiple accept="image/*">
+<button onclick="upload()">업로드</button>
+</div>
+</div>
+
+<div class="viewer" id="viewer">
+<div class="close" onclick="closeViewer()">X</div>
+<img id="viewerImg">
+</div>
+
+<script>
+
+let db;
+let current = null;
+let index = 0;
+
+/* =========================
+   IndexedDB
+========================= */
+
+const request = indexedDB.open("galleryDB",1);
+
+request.onupgradeneeded = e => {
+db = e.target.result;
+db.createObjectStore("groups",{keyPath:"id"});
+};
+
+request.onsuccess = e => {
+db = e.target.result;
+render();
+};
+
+/* =========================
+   저장
+========================= */
+
+function saveGroup(group){
+const tx = db.transaction("groups","readwrite");
+tx.objectStore("groups").put(group);
+}
+
+/* =========================
+   불러오기
+========================= */
+
+function getAll(cb){
+const tx = db.transaction("groups","readonly");
+const req = tx.objectStore("groups").getAll();
+req.onsuccess = () => cb(req.result);
+}
+
+/* =========================
+   삭제
+========================= */
+
+function deleteGroup(id){
+const tx = db.transaction("groups","readwrite");
+tx.objectStore("groups").delete(id);
+}
+
+/* =========================
+   업로드
+========================= */
+
+function upload(){
+
+const name = document.getElementById("name").value || "Untitled";
+const files = Array.from(document.getElementById("files").files);
+
+if(files.length === 0){
+alert("파일 선택");
+return;
+}
+
+const images = [];
+for(const file of files){
+images.push(file);
+}
+
+saveGroup({
+id: Date.now(),
+name,
+images
+});
+
+document.getElementById("name").value = "";
+document.getElementById("files").value = "";
+
+render();
+alert("업로드 완료 👍");
+}
+
+/* =========================
+   렌더
+========================= */
+
+function render(){
+
+if(!db) return;
+
+getAll(groups => {
+
+const grid = document.getElementById("grid");
+grid.innerHTML = "";
+
+groups.forEach(g => {
+
+const d = document.createElement("div");
+d.className = "card";
+
+const url = URL.createObjectURL(g.images[0]);
+
+d.innerHTML = `
+<img src="${url}">
+<div class="title">${g.name}</div>
+<button class="delete">삭제</button>
+`;
+
+d.onclick = () => open(g);
+
+/* 🔥 삭제 확인창 다시 추가 */
+d.querySelector(".delete").onclick = (e) => {
+e.stopPropagation();
+
+if(!confirm("정말 삭제하시겠습니까?")) return;
+
+deleteGroup(g.id);
+render();
+};
+
+grid.appendChild(d);
+
+});
+
+});
+
+}
+
+/* =========================
+   뷰어
+========================= */
+
+function open(g){
+current = g;
+index = 0;
+
+document.getElementById("viewer").style.display = "flex";
+document.body.style.overflow = "hidden";
+
+showImage();
+}
+
+function closeViewer(){
+document.getElementById("viewer").style.display = "none";
+current = null;
+document.body.style.overflow = "auto";
+}
+
+/* =========================
+   이미지 표시
+========================= */
+
+function showImage(){
+const img = current.images[index];
+const url = URL.createObjectURL(img);
+document.getElementById("viewerImg").src = url;
+}
+
+/* =========================
+   PC 스와이프
+========================= */
+
+document.addEventListener("wheel",e=>{
+if(!current) return;
+
+if(e.deltaY > 0) index++;
+else index--;
+
+if(index < 0) index = 0;
+if(index >= current.images.length)
+index = current.images.length - 1;
+
+showImage();
+});
+
+/* =========================
+   모바일 스와이프 (안정화 버전)
+========================= */
+
+let startY = 0;
+const viewer = document.getElementById("viewer");
+
+viewer.addEventListener("touchstart",(e)=>{
+if(!current) return;
+startY = e.touches[0].clientY;
+},{passive:false});
+
+viewer.addEventListener("touchmove",(e)=>{
+e.preventDefault();
+},{passive:false});
+
+viewer.addEventListener("touchend",(e)=>{
+if(!current) return;
+
+let endY = e.changedTouches[0].clientY;
+let diff = startY - endY;
+
+if(Math.abs(diff) < 50) return;
+
+/* 🔥 첫 이미지에서 위로 스와이프 → 새로고침 */
+if(index === 0 && diff < 0){
+location.reload();
+return;
+}
+
+if(diff > 0) index++;
+else index--;
+
+if(index < 0) index = 0;
+if(index >= current.images.length)
+index = current.images.length - 1;
+
+showImage();
+},{passive:false});
+
+/* =========================
+   탭
+========================= */
+
+function show(t){
+document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
+document.querySelectorAll(".tab").forEach(tab=>tab.classList.remove("active"));
+
+document.getElementById(t).classList.add("active");
+event.target.classList.add("active");
+}
+
+</script>
+
+</body>
+</html>
