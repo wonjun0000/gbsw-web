@@ -18,7 +18,7 @@ const rendersnack = function (snack) {
 
 const addSnack = function (snack) {
     if (snack) {
-        snacks.push(snack)
+        snacks.push(snack)  
         return true
     } else {
         return false
